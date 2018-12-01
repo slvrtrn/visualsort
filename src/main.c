@@ -1,16 +1,19 @@
 #include <stdio.h>
 #include "rendering.h"
+#include "threads.h"
 
+#define TITLE "???"
 #define WIDTH 800
 #define HEIGHT 600
 
 #define MAX_COLORS 4
 #define RGB 3
 
-#define MAX_LINES 24
+#define MAX_LINES 48
 #define MAX_ELEMENTS (MAX_LINES * WIDTH)
 
-#define SHOW_FPS 1
+#define SHOW_FPS 0
+#define ENABLE_Y_DEVIATION 0
 
 uint8_t colors[MAX_COLORS][RGB] = {
     {0x8D, 0x6B, 0x94},
@@ -20,40 +23,15 @@ uint8_t colors[MAX_COLORS][RGB] = {
 };
 
 uint8_t bg_colors[3] = {
-    0x05, 0x09, 0x0B
+    0x05,
+    0x09,
+    0x0B
 };
 
-typedef struct {
-  struct {
-    int x;
-    int y;
-    int z;
-  };
-  struct {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-  };
-} point_t;
-
-void shuffle(point_t **array) {
-  point_t *temp;
-  for (size_t i = MAX_ELEMENTS - 1; i > 0; i--) {
-    size_t j = (size_t) random() % i;
-    temp = array[i];
-    array[i] = array[j];
-    array[j] = temp;
-  }
-}
-
-void bubblesort(point_t **array) {
-  point_t *temp;
-  for (size_t i = 0; i < MAX_ELEMENTS - 1; i++) {
-    if (array[i]->z > array[i + 1]->z) {
-      temp = array[i];
-      array[i] = array[i + 1];
-      array[i + 1] = temp;
-    }
+void draw_points(sdl_rendering_t *sdl, point_t **pts) {
+  for (int i = 0; i < MAX_ELEMENTS; i++) {
+    SDL_SetRenderDrawColor(sdl->renderer, pts[i]->r, pts[i]->g, pts[i]->b, SDL_ALPHA_OPAQUE);
+    SDL_RenderDrawPoint(sdl->renderer, i / MAX_LINES, pts[i]->y);
   }
 }
 
@@ -61,31 +39,39 @@ int main() {
 
   const double aspect_ratio = (double) WIDTH / (double) HEIGHT;
 
-  srandom((uint32_t) time(NULL));
-  sdl_rendering_t *sdl = init_sdl(WIDTH, HEIGHT, "Visual sort");
+  sdl_params_t sdl_params = {WIDTH, HEIGHT, TITLE, 60};
+  sdl_rendering_t *sdl = init_sdl(sdl_params);
 
-  point_t **pts = malloc(sizeof(point_t) * MAX_ELEMENTS);
+  point_t **pts = malloc(sizeof(point_t *) * MAX_ELEMENTS);
 
   int x;
-  int dy;
+  int dy = 0;
   for (int i = 0; i < MAX_ELEMENTS; i++) {
     pts[i] = malloc(sizeof(point_t));
     x = i / MAX_LINES;
-    pts[i]->x = x;
+    pts[i]->x = i;
+#if ENABLE_Y_DEVIATION == 1
     if (random() % 2 > 0) {
-      dy = - i % MAX_LINES;
+      dy = -i % MAX_LINES;
     } else {
       dy = i % MAX_LINES;
     }
+#endif
     pts[i]->y = (int) (x / aspect_ratio) + dy;
-    pts[i]->z = i;
     uint8_t *color = colors[random() % MAX_COLORS];
     pts[i]->r = color[0];
     pts[i]->g = color[1];
     pts[i]->b = color[2];
   }
 
+  shuffle(pts, MAX_ELEMENTS);
+
   int is_running = 1;
+  int is_sorting = 0;
+
+  pthread_data_t *pthread_data = NULL;
+
+  SORTING_METHOD sorting_method = BUBBLE;
 
 #if SHOW_FPS == 1
   uint32_t start_time;
@@ -98,17 +84,24 @@ int main() {
     start_time = SDL_GetTicks();
 #endif
 
-    bubblesort(pts);
-
     // BG
     SDL_SetRenderDrawColor(sdl->renderer, bg_colors[0], bg_colors[1], bg_colors[2], SDL_ALPHA_OPAQUE);
     SDL_RenderClear(sdl->renderer);
 
-    // Points
-    for (int i = 0; i < MAX_ELEMENTS; i++) {
-      SDL_SetRenderDrawColor(sdl->renderer, pts[i]->r, pts[i]->g, pts[i]->b, SDL_ALPHA_OPAQUE);
-      SDL_RenderDrawPoint(sdl->renderer, i / MAX_LINES, pts[i]->y);
+    if (is_sorting == 1) {
+      if (sorting_method & BUBBLE) {
+        if (pthread_data == NULL) {
+          pthread_data = init_thread(pts, MAX_ELEMENTS, run_bubble_sort);
+        }
+      }
+      if (sorting_method & SELECTION) {
+        if (pthread_data == NULL) {
+          pthread_data = init_thread(pts, MAX_ELEMENTS, run_selection_sort);
+        }
+      }
     }
+
+    draw_points(sdl, pts);
     SDL_RenderPresent(sdl->renderer);
 
 #if SHOW_FPS == 1
@@ -126,9 +119,30 @@ int main() {
           break;
         case SDL_KEYDOWN:
           switch (sdl->event->key.keysym.sym) {
-            case SDLK_SPACE:
-              shuffle(pts);
+            case SDLK_BACKSPACE:
+              if (pthread_data != NULL) {
+                toggle_should_terminate(pthread_data->params);
+                destroy_thread_data(pthread_data);
+                pthread_data = NULL;
+              }
+              is_sorting = 1;
+              shuffle(pts, MAX_ELEMENTS);
               break;
+            case SDLK_SPACE:
+              is_sorting = !is_sorting;
+              if (pthread_data != NULL) {
+                toggle_is_running(pthread_data->params);
+              }
+              break;
+            case SDLK_1:
+              printf("Bubble sort\n");
+              sorting_method = BUBBLE;
+              is_sorting = 0;
+              break;
+            case SDLK_2:
+              printf("Selection sort\n");
+              sorting_method = SELECTION;
+              is_sorting = 0;
             default:
               break;
           }
@@ -137,8 +151,11 @@ int main() {
           break;
       }
     }
+
+    delay_frame(sdl);
   }
 
+  destroy_thread_data(pthread_data);
   shutdown_sdl(sdl);
   return 0;
 }

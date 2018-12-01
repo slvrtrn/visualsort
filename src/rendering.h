@@ -12,9 +12,18 @@ typedef struct {
   SDL_Event *event;
   uint32_t frame_start;
   uint32_t frame_time;
+  int max_fps;
+  int max_frame_time;
 } sdl_rendering_t;
 
-sdl_rendering_t *init_sdl(int w, int h, const char *title);
+typedef struct {
+  int w;
+  int h;
+  char *title;
+  int max_fps;
+} sdl_params_t;
+
+sdl_rendering_t *init_sdl(sdl_params_t params);
 
 void shutdown_sdl(sdl_rendering_t *sdl);
 

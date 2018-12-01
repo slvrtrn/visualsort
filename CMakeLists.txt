@@ -3,7 +3,7 @@ project(visualsort C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(visualsort src/main.c src/rendering.c src/rendering.h)
+add_executable(visualsort src/main.c src/rendering.c src/rendering.h src/threads.c src/threads.h src/sorting.h src/sorting.c)
 
 include_directories(/usr/local/lib)
 include_directories(/usr/local/include)
